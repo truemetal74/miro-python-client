@@ -9,9 +9,9 @@ import pprint
 
 from miro.objects.base_miro_object import MiroObjectType
 from miro.objects.board import Board
-from miro.objects.widgets import Widget
+from miro.objects.widgets import (Widget, Text, MiroAttributeMapper)
 from miro.utils import (get_json_or_raise_exception,
-                        UnexpectedResponseException, create_widget_by_type)
+                        UnexpectedResponseException)
 
 
 class MiroApiClient:
@@ -38,11 +38,12 @@ class MiroApiClient:
     def log_msg(self, *args):
         """ Depending on the debug status - write a log message or do nothing """
         if self.debug:
-            for x in args:
-                print(x)
-            print("\n")
+            print(*args, "\n")
+            # for x in args:
+            #     print(x)
+            # print("\n")
 
-    def endpoint_name(self, object_name):
+    def endpoint_name(self, object_name: str):
         """ Return the part of the end-point URL, specific to a particular
         object - e.g. for "boards" it would be https://api.miro.com/v2/boards/
 
@@ -85,7 +86,7 @@ class MiroApiClient:
             widgets_json = collection_json['data']
             for w in widgets_json:
                 self.log_msg(pprint.pformat(w))
-            return [create_widget_by_type(w) for w in widgets_json]
+            return [MiroAttributeMapper.create_widget_by_type(w) for w in widgets_json]
         except Exception as e:
             raise UnexpectedResponseException(cause=e)
 
@@ -131,23 +132,69 @@ class MiroApiClient:
         except Exception as e:
             raise UnexpectedResponseException(cause=e)
 
+    def get_item(self, board_id: str, item_id: str) -> Widget:
+        headers = {
+            'Content-Type': 'application/json'
+        }
+        headers.update(self.auth_header_as_dict)
+
+        url = f'{self.base_url}/v{self.api_version}/' + \
+            self.endpoint_name(self.boards) + f'/{board_id}/' + \
+            self.endpoint_name(self.items) + f'/{item_id}/'
+        response = self.request_with_tracing("GET", url, headers=headers)
+        
+        widget_json = get_json_or_raise_exception(response)
+        self.log_msg(widget_json)
+
+        try:
+            return MiroAttributeMapper.create_widget_by_type(widget_json)
+        except Exception as e:
+            raise UnexpectedResponseException(cause=e)
+    
     def add_widget(self, board_id: str, new_widget: Widget) -> Widget:
         headers = {
             'Content-Type': 'application/json'
         }
         headers.update(self.auth_header_as_dict)
 
-        widget_data = new_widget.attributes2miro()
+        widget_data = new_widget.attributes2miro(self.api_version)
 
         url = f'{self.base_url}/v{self.api_version}/' + \
-            self.endpoint_name(self.boards) + f'/{board_id}'
-        response = self.request_with_tracing("POST", url, json=widget_data, headers=headers)
+            self.endpoint_name(self.boards) + f'/{board_id}/' + \
+            self.endpoint_name(self.items)
+        response = self.request_with_tracing("POST", url, \
+            json=widget_data, headers=headers)
         
         widget_json = get_json_or_raise_exception(response)
+
         self.log_msg(widget_json)
         try:
-            return Widget(
-                obj_id=widget_json['id']
-            )
+            return MiroAttributeMapper.produce_widget(widget_json)
+        except Exception as e:
+            raise UnexpectedResponseException(cause=e)
+
+    def add_item(self, board_id: str, new_widget: Widget) -> Widget:
+#         w1 = Text(obj_id=0, text="<p>New Sample Widget</p>",
+# #        x_pos=random.randint(-100,100),y_pos=random.randint(-100,100),
+#             x_pos=0,y_pos=0,
+#             width=100,height=100,rotation=0)
+#         return w1
+        headers = {
+            'Content-Type': 'application/json'
+        }
+        headers.update(self.auth_header_as_dict)
+
+        widget_data = new_widget.attributes2miro(self.api_version)
+        self.log_msg("Widget data", json.dumps(widget_data, indent=4), new_widget)
+        url = f'{self.base_url}/v{self.api_version}/' + \
+            self.endpoint_name(self.boards) + f'/{board_id}/' + \
+            new_widget.endpoint_name(self.api_version)
+        response = self.request_with_tracing("POST", url, \
+            json=widget_data, headers=headers)
+        
+        widget_json = get_json_or_raise_exception(response)
+        self.log_msg(json.dumps(widget_json, indent=4))
+        try:
+            return MiroAttributeMapper.produce_widget(widget_json)
         except Exception as e:
             raise UnexpectedResponseException(cause=e)
